@@ -7,6 +7,7 @@ import tempfile
 import re
 import zipfile
 import hashlib
+import hmac
 import html
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -50,7 +51,31 @@ st.set_page_config(
     page_title="OneSpot Cafe - Financial System", page_icon="☕", layout="wide"
 )
 
-APP_PASSWORD = "Cofe2026"
+
+
+def _secret(name, default=None):
+  try:
+    value = st.secrets.get(name, None)
+  except Exception:
+    value = None
+  return value if value else os.environ.get(name, default)
+
+
+# ضع APP_PASSWORD في Secrets ثم احذف القيمة الاحتياطية "Cofe2026" من هنا.
+APP_PASSWORD = str(_secret("APP_PASSWORD", "Cofe2026"))
+
+
+def get_users():
+  """Optional multi-user mode: [USERS.name] password=..., role="owner"|"manager" in Secrets."""
+  try:
+    users = st.secrets.get("USERS", None)
+    return {str(k): dict(v) for k, v in users.items()} if users else {}
+  except Exception:
+    return {}
+
+
+def _same(a, b):
+  return hmac.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
 CURRENCY_LABEL = "ج.م"
 BRANCHES = ["Onespot 1", "OneSpot 2"]
 LEGACY_BRANCH = BRANCHES[0]
@@ -82,7 +107,17 @@ EXPENSE_CATS = [
 
 def password_entered():
     entered = st.session_state.get("password", "")
-    st.session_state["password_correct"] = entered == APP_PASSWORD
+    users = get_users()
+    if users:
+        name = str(st.session_state.get("login_user", "")).strip()
+        info = users.get(name)
+        ok = bool(info) and _same(info.get("password", ""), entered)
+        st.session_state["current_user"] = name if ok else None
+        st.session_state["user_role"] = info.get("role", "manager") if ok else None
+    else:
+        ok = _same(APP_PASSWORD, entered)
+        st.session_state["current_user"] = "مستخدم التطبيق"
+    st.session_state["password_correct"] = ok
 
 
 LOGIN_CSS = """
@@ -169,6 +204,8 @@ def check_password():
             unsafe_allow_html=True,
         )
 
+    if get_users():
+        st.text_input("اسم المستخدم", key="login_user")
     st.text_input(
         "كلمة المرور",
         type="password",
@@ -532,7 +569,7 @@ def build_transaction_audit_events(previous_df, current_df):
     action = "إضافة" if before is None else "حذف" if after is None else "تعديل"
     details = after or before
     events.append({
-        "actor": "مستخدم التطبيق",
+        "actor": st.session_state.get("current_user") or "مستخدم التطبيق",
         "action": action,
         **details,
     })
@@ -1198,6 +1235,14 @@ button:focus-visible { outline: 2px solid var(--os-accent); outline-offset: 2px;
 [data-testid="stExpander"] summary { padding: 0.7rem 1rem; }
 [data-testid="stExpander"] summary p { font-weight: 600; }
 
+@media (max-width: 640px) {
+  .onespot-brand { font-size: 18px; }
+  [data-testid="stMainBlockContainer"] h3 { font-size: 18px; }
+  [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 0.75rem; }
+  [data-testid="stColumn"], [data-testid="column"] { min-width: 100% !important; }
+  [data-baseweb="tab"] { padding: 0 12px; height: 46px; }
+  [data-testid="stRadio"] [role="radiogroup"] label { padding: 6px 12px; }
+}
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
@@ -1392,6 +1437,34 @@ with tab_home:
         report_df["Parsed_Date"] = pd.to_datetime(report_df["Date"], errors="coerce")
         report_df["Year_Month"] = report_df["Parsed_Date"].dt.strftime("%Y-%m")
     
+        full_df = report_df.copy()
+        try:
+            from zoneinfo import ZoneInfo
+            today = pd.Timestamp(datetime.datetime.now(ZoneInfo("Africa/Cairo")).date())
+        except Exception:
+            today = pd.Timestamp(datetime.date.today())
+        period = st.radio(
+            "الفترة:", ["كل الفترات", "اليوم", "آخر 7 أيام", "هذا الشهر", "فترة مخصصة"],
+            horizontal=True, key="dashboard_period",
+        )
+        period_start, period_end = None, today
+        if period == "اليوم":
+            period_start = today
+        elif period == "آخر 7 أيام":
+            period_start = today - pd.Timedelta(days=6)
+        elif period == "هذا الشهر":
+            period_start = today.replace(day=1)
+        elif period == "فترة مخصصة":
+            picked = st.date_input(
+                "من - إلى", value=(today.replace(day=1), today), key="dashboard_custom_range"
+            )
+            if isinstance(picked, (tuple, list)) and len(picked) == 2:
+                period_start, period_end = pd.Timestamp(picked[0]), pd.Timestamp(picked[1])
+        if period_start is not None:
+            report_df = report_df[
+                (report_df["Parsed_Date"] >= period_start) & (report_df["Parsed_Date"] <= period_end)
+            ]
+
         selected_branch = st.radio(
             "عرض بيانات:",
             ["إجمالي الفرعين"] + BRANCHES,
@@ -1408,16 +1481,46 @@ with tab_home:
         summary_scope = "الفرعين" if selected_branch == "إجمالي الفرعين" else selected_branch
     
         profit_margin = (net_profit / total_income * 100) if total_income else None
+        mom = {}
+        if period == "هذا الشهر":
+            base = full_df if selected_branch == "إجمالي الفرعين" else full_df[full_df["Branch"] == selected_branch]
+            cur_ym = today.strftime("%Y-%m")
+            prev_ym = (today.replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
+            for typ in ("Income", "Expense"):
+                cur = base.loc[(base["Year_Month"] == cur_ym) & (base["Type"] == typ), "Amount"].sum()
+                prev = base.loc[(base["Year_Month"] == prev_ym) & (base["Type"] == typ), "Amount"].sum()
+                mom[typ] = f"{(cur - prev) / prev * 100:+.1f}%" if prev else None
         with st.container(key="kpi_row"):
             metric_income, metric_expense, metric_profit = st.columns(3)
-            metric_income.metric(f"إيرادات {summary_scope}", format_currency(total_income))
-            metric_expense.metric(f"مصروفات {summary_scope}", format_currency(total_expense))
+            metric_income.metric(
+                f"إيرادات {summary_scope}", format_currency(total_income),
+                delta=mom.get("Income"), help="التغيير مقارنة بالشهر السابق",
+            )
+            metric_expense.metric(
+                f"مصروفات {summary_scope}", format_currency(total_expense),
+                delta=mom.get("Expense"), delta_color="inverse", help="التغيير مقارنة بالشهر السابق",
+            )
             metric_profit.metric(
                 f"صافي ربح {summary_scope}",
                 format_currency(net_profit),
                 delta=f"{profit_margin:+.1f}%" if profit_margin is not None else None,
                 help="النسبة = صافي الربح ÷ الإيرادات (هامش الربح)",
             )
+
+        with st.expander("تنبيه نسبة المصروفات", expanded=False):
+            alert_ratio = st.number_input(
+                "نبّهني لو المصروفات تعدّت هذه النسبة من الإيرادات (%):",
+                min_value=1, max_value=200, value=80, step=5, key="alert_ratio",
+            )
+        if total_income > 0 and total_expense / total_income * 100 > alert_ratio:
+            st.warning(
+                f"المصروفات وصلت {total_expense / total_income * 100:.0f}% من الإيرادات "
+                f"(الحد {alert_ratio}%)."
+            )
+        elif total_income == 0 and total_expense > 0:
+            st.warning("في مصروفات مسجلة بدون إيرادات في هذه الفترة.")
+        if net_profit < 0:
+            st.error(f"صافي الربح بالسالب: {format_currency(net_profit)}")
 
         st.markdown("### ملخص الأداء المالي لكل فرع")
         branch_columns = st.columns(len(BRANCHES))
@@ -1500,6 +1603,26 @@ with tab_home:
                 else:
                     st.info("ستظهر المقارنة بعد تسجيل المعاملات.")
     
+        top_expenses = (
+            analysis_df[analysis_df["Type"] == "Expense"]
+            .groupby("Category")["Amount"].sum().sort_values(ascending=False).head(5)
+        )
+        if not top_expenses.empty:
+            with st.container(border=True, key="top_expenses_card"):
+                st.markdown("**أكبر 5 بنود مصروفات**")
+                top_html = ""
+                for rank_name, rank_value in top_expenses.items():
+                    share = rank_value / total_expense * 100 if total_expense else 0
+                    top_html += (
+                        "<div style='margin:10px 0'><div style='display:flex;justify-content:space-between;"
+                        f"font-size:14px'><span>{html.escape(str(rank_name))}</span>"
+                        f"<b dir='ltr'>{rank_value:,.2f} {CURRENCY_LABEL} · {share:.0f}%</b></div>"
+                        "<div style='height:8px;background:#f0ebe4;border-radius:99px;margin-top:6px'>"
+                        f"<div style='height:8px;width:{min(share, 100):.1f}%;background:{COLOR_NEGATIVE};"
+                        "border-radius:99px'></div></div></div>"
+                    )
+                st.markdown(top_html, unsafe_allow_html=True)
+
         pivot_df = analysis_df.pivot_table(
             index="Year_Month",
             columns="Type",
@@ -1983,6 +2106,20 @@ with tab_reports:
             file_name=f"onespot_branch_report_{chosen_month.replace(' ', '_')}.csv",
             mime="text/csv",
         )
+        try:
+            xlsx_buffer = BytesIO()
+            with pd.ExcelWriter(xlsx_buffer, engine="openpyxl") as writer:
+                pd.DataFrame(comparison_rows).to_excel(writer, sheet_name="ملخص الفروع", index=False)
+                export_df.to_excel(writer, sheet_name="القيود", index=False)
+            st.download_button(
+                "تنزيل التقرير بصيغة Excel",
+                data=xlsx_buffer.getvalue(),
+                file_name=f"onespot_branch_report_{chosen_month.replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="branch_report_xlsx",
+            )
+        except ImportError:
+            st.caption("لتفعيل تنزيل Excel أضف openpyxl إلى requirements.txt.")
 
     with st.expander("مصروفات شهرية متكررة", expanded=False):
         st.caption("أضف الإيجار أو الرواتب أو غيرها مرة واحدة؛ سيذكّرك النظام بها كل شهر. لا يُسجَّل المصروف إلا عند ضغطك على زر التسجيل.")
@@ -2540,3 +2677,13 @@ with tab_employee_tracking:
                 mime="text/csv",
                 key="employee_tracking_download",
             )
+    
+
+
+st.markdown("---")
+_footer_cols = st.columns([4, 1])
+_footer_cols[0].caption(f"المستخدم الحالي: {st.session_state.get('current_user') or '—'}")
+if _footer_cols[1].button("تسجيل الخروج", key="logout_button"):
+    for _key in ("password_correct", "current_user", "user_role", "password"):
+        st.session_state.pop(_key, None)
+    st.rerun()
