@@ -23,6 +23,27 @@ except ImportError:
   HAS_PLOTLY = False
 
 # =====================================================
+# تصميم موحّد (ألوان وخطوط) يُستخدم في الواجهة والرسوم البيانية
+# =====================================================
+OS_FONT = '"IBM Plex Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif'
+COLOR_POSITIVE = "#2f7a56"
+COLOR_NEGATIVE = "#b4483d"
+CHART_COLORS = ["#b9823f", "#2f7a56", "#b4483d", "#6b7f99", "#8f6a8f", "#a39485"]
+TYPE_AR = {"Income": "إيراد", "Expense": "مصروف"}
+
+
+def style_figure(fig):
+  """Apply the app font and a quiet grid to a Plotly figure."""
+  fig.update_layout(
+      font=dict(family=OS_FONT, size=13, color="#4a3b30"),
+      hoverlabel=dict(font=dict(family=OS_FONT)),
+  )
+  fig.update_xaxes(showgrid=False, linecolor="#e6dfd6")
+  fig.update_yaxes(gridcolor="#ece6de", zeroline=False)
+  return fig
+
+
+# =====================================================
 # 1. إعدادات التطبيق وتسجيل الدخول
 # =====================================================
 st.set_page_config(
@@ -64,45 +85,68 @@ def password_entered():
     st.session_state["password_correct"] = entered == APP_PASSWORD
 
 
+LOGIN_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700');
+.stApp, [data-testid="stAppViewContainer"] {
+    background-image: __BACKGROUND__;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: #1d140e;
+    background-attachment: fixed;
+    font-family: __FONT__;
+}
+[data-testid="stHeader"], [data-testid="stToolbar"] { display: none; }
+[data-testid="stMainBlockContainer"] {
+    width: min(440px, 92vw);
+    max-width: 440px;
+    margin: 9vh auto 0 !important;
+    padding: 2.2rem 2rem 1.8rem !important;
+    background: rgba(255, 252, 248, 0.97);
+    border-radius: 20px;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.5);
+    direction: rtl;
+    text-align: right;
+}
+[data-testid="stMainBlockContainer"] label,
+[data-testid="stMainBlockContainer"] p,
+[data-testid="stMainBlockContainer"] input {
+    font-family: __FONT__ !important;
+}
+[data-testid="stMainBlockContainer"] label p { color: #4a3b30 !important; font-weight: 600; }
+[data-testid="stMainBlockContainer"] [data-baseweb="input"] {
+    border-radius: 10px !important; border: 1px solid #ddd3c7 !important; background: #fff !important;
+}
+[data-testid="stMainBlockContainer"] [data-baseweb="input"]:focus-within {
+    border-color: #b9823f !important; box-shadow: 0 0 0 3px rgba(185, 130, 63, 0.2);
+}
+[data-testid="stMainBlockContainer"] input { direction: ltr; text-align: left; color: #2a1f18; }
+.onespot-login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 1.4rem; }
+.onespot-login-mark {
+    width: 48px; height: 48px; border-radius: 14px; background: #b9823f;
+    display: grid; place-items: center; font-size: 24px; flex: none;
+}
+.onespot-login-title { font-size: 22px; font-weight: 700; color: #2a1f18; line-height: 1.2; }
+.onespot-login-sub { font-size: 13px; color: #7a6a5d; margin-top: 3px; }
+</style>
+"""
+
+
 def apply_login_background():
-  """Show a local cafe photo on the login screen, with a safe CSS fallback."""
+  """Show a local cafe photo behind the login card, with a safe CSS fallback."""
   image_path = Path(__file__).resolve().parent / "cafe_login_bg.png"
   try:
     image_data = base64.b64encode(image_path.read_bytes()).decode("ascii")
     background = (
-        "linear-gradient(rgba(8, 10, 12, 0.68), rgba(8, 10, 12, 0.72)), "
+        "linear-gradient(rgba(20, 13, 8, 0.62), rgba(20, 13, 8, 0.8)), "
         f"url('data:image/png;base64,{image_data}')"
     )
   except (OSError, ValueError):
-    background = "linear-gradient(135deg, #17120e, #3b2a1d)"
+    background = "linear-gradient(135deg, #1d140e, #4a3220)"
 
   st.markdown(
-      f"""
-      <style>
-      .stApp, [data-testid="stAppViewContainer"] {{
-          background-image: {background};
-          background-size: contain;
-          background-position: center;
-          background-repeat: no-repeat;
-          background-color: #17120e;
-          background-attachment: fixed;
-      }}
-      [data-testid="stHeader"] {{ background: rgba(0, 0, 0, 0); }}
-      [data-testid="stMainBlockContainer"] {{
-          background: rgba(8, 10, 12, 0.16);
-          border-radius: 16px;
-      }}
-      [data-testid="stMainBlockContainer"] h1,
-      [data-testid="stMainBlockContainer"] label {{
-          color: #ffffff !important;
-          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
-      }}
-      [data-testid="stMainBlockContainer"] input {{
-          background-color: rgba(255, 255, 255, 0.96);
-          color: #171717;
-      }}
-      </style>
-      """,
+      LOGIN_CSS.replace("__BACKGROUND__", background).replace("__FONT__", OS_FONT),
       unsafe_allow_html=True,
   )
 
@@ -114,21 +158,27 @@ def check_password():
     apply_login_background()
     login_banner = Path(__file__).resolve().parent / "login_banner.png"
     if login_banner.is_file():
-        _, banner_col, _ = st.columns([1, 2.4, 1])
-        with banner_col:
-            st.image(str(login_banner), use_container_width=True)
-    if not login_banner.is_file():
-        st.title("🔒 OneSpot Cafe System - Secure Login")
+        st.image(str(login_banner), use_container_width=True)
+    else:
+        st.markdown(
+            '<div class="onespot-login-brand">'
+            '<div class="onespot-login-mark">☕</div>'
+            '<div><div class="onespot-login-title">OneSpot Cafe</div>'
+            '<div class="onespot-login-sub">النظام المالي — تسجيل الدخول</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     st.text_input(
-        "Enter Cafe Password:",
+        "كلمة المرور",
         type="password",
         key="password",
         on_change=password_entered,
+        placeholder="اكتب كلمة مرور الكافيه",
     )
 
     if st.session_state.get("password_correct") is False:
-        st.error("❌ Incorrect password. Please try again.")
+        st.error("كلمة المرور غير صحيحة. حاول مرة أخرى.")
 
     return False
 
@@ -967,102 +1017,204 @@ if not read_database_url():
 # =====================================================
 # 4. واجهة OneSpot Cafe المالية
 # =====================================================
+APP_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700');
+
+:root {
+  --os-font: __FONT__;
+  --os-ink: #2a1f18;
+  --os-muted: #7a6a5d;
+  --os-line: #e6dfd6;
+  --os-bg: #f5f3ef;
+  --os-surface: #ffffff;
+  --os-brand: #33221a;
+  --os-accent: #b9823f;
+  --os-accent-dark: #94652f;
+  --os-pos: __POS__;
+  --os-neg: __NEG__;
+  --os-pad: 2rem;
+  --os-shadow: 0 1px 2px rgba(51, 34, 26, 0.05), 0 6px 18px rgba(51, 34, 26, 0.05);
+}
+@media (max-width: 640px) { :root { --os-pad: 1rem; } }
+
+/* ---------- الأساس ---------- */
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+  background: var(--os-bg); color: var(--os-ink);
+}
+html, body, [data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3,
+[data-testid="stAppViewContainer"] h4, [data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] button, [data-testid="stAppViewContainer"] input,
+[data-testid="stAppViewContainer"] textarea, [data-testid="stAppViewContainer"] select,
+[data-testid="stAppViewContainer"] li, [data-testid="stMarkdownContainer"],
+[data-testid="stMetricLabel"], [data-testid="stMetricValue"], [data-testid="stMetricDelta"],
+[data-testid="stCaptionContainer"], [data-baseweb="tab"], [data-baseweb="select"] {
+  font-family: var(--os-font) !important;
+}
+
+/* الصفحة كلها من اليمين لليسار. لو عايز ترجّعها يسار-يمين احذف السطرين اللي تحت. */
+[data-testid="stMainBlockContainer"] { direction: rtl; text-align: right; }
+[data-testid="stMainBlockContainer"] [data-testid="stHorizontalBlock"] { direction: rtl; }
+
+[data-testid="stMainBlockContainer"] {
+  max-width: 1480px;
+  padding: 1.4rem var(--os-pad) 3rem;
+}
+[data-testid="stDataFrame"], .js-plotly-plot, .plotly { direction: ltr; text-align: left; }
+
+/* ---------- الهيدر ---------- */
+[data-testid="stHeader"] { background: rgba(0, 0, 0, 0); }
+[data-testid="stHeader"] button, [data-testid="stHeader"] a { color: #f3e9dd !important; }
+.onespot-nav {
+  display: flex; align-items: center; gap: 14px; direction: rtl; text-align: right;
+  background: var(--os-brand); color: #fff;
+  margin: -1.4rem calc(-1 * var(--os-pad)) 0;
+  padding: 14px var(--os-pad); padding-inline-start: calc(var(--os-pad) + 44px);
+  min-height: 76px;
+}
+.onespot-mark {
+  width: 42px; height: 42px; border-radius: 12px; background: var(--os-accent);
+  display: grid; place-items: center; font-size: 21px; flex: none;
+}
+.onespot-brand { font-size: 20px; font-weight: 700; color: #fff; line-height: 1.2; }
+.onespot-sub { font-size: 12.5px; color: #d8c3aa; margin-top: 3px; }
+
+/* ---------- التابات ---------- */
+[data-baseweb="tab-list"] {
+  direction: rtl; justify-content: flex-start; gap: 4px;
+  background: var(--os-brand); border-bottom: 0;
+  margin: 0 calc(-1 * var(--os-pad)) 1.4rem; padding: 0 var(--os-pad);
+}
+[data-baseweb="tab-border"] { background-color: rgba(255, 255, 255, 0.08) !important; }
+[data-baseweb="tab-highlight"] { background-color: #d9a45b !important; height: 3px !important; }
+[data-baseweb="tab"] {
+  height: 50px; padding: 0 16px; color: rgba(243, 233, 221, 0.72);
+  background: transparent; border-radius: 8px 8px 0 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+[data-baseweb="tab"]:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+[data-baseweb="tab"][aria-selected="true"] { color: #fff; background: rgba(255, 255, 255, 0.08); }
+[data-testid="stTabs"] [role="tab"], [data-testid="stTabs"] [role="tab"] p {
+  font-size: 15px !important; font-weight: 500 !important; line-height: 1.35 !important; color: inherit;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] p { font-weight: 700 !important; }
+[data-baseweb="tab"]:focus-visible { outline: 2px solid #d9a45b; outline-offset: -2px; }
+
+/* ---------- العناوين ---------- */
+[data-testid="stMainBlockContainer"] h3 {
+  color: var(--os-ink); font-size: 21px; font-weight: 700; margin: 0.4rem 0 0.9rem;
+  padding-inline-start: 12px; border-inline-start: 4px solid var(--os-accent); line-height: 1.4;
+}
+[data-testid="stMainBlockContainer"] h4 { color: var(--os-ink); font-size: 16px; font-weight: 600; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--os-muted); }
+hr { border-color: var(--os-line) !important; margin: 1.6rem 0 !important; }
+
+/* ---------- كروت الأرقام ---------- */
+[data-testid="stMetric"] {
+  background: var(--os-surface); border: 1px solid var(--os-line);
+  border-radius: 14px; padding: 16px 18px; box-shadow: var(--os-shadow);
+  direction: rtl; text-align: right;
+}
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+  color: var(--os-muted); font-size: 13px; font-weight: 500;
+}
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] div {
+  color: var(--os-ink); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+[data-testid="stMetricDelta"] { font-size: 13px; font-weight: 600; }
+@media (max-width: 640px) {
+  [data-testid="stMetricValue"], [data-testid="stMetricValue"] div { font-size: 22px; }
+}
+.st-key-kpi_row [data-testid="stMetric"] { border-top: 3px solid var(--os-accent); }
+.st-key-kpi_row [data-testid="stColumn"]:nth-child(1) [data-testid="stMetric"],
+.st-key-kpi_row [data-testid="column"]:nth-child(1) [data-testid="stMetric"] { border-top-color: var(--os-pos); }
+.st-key-kpi_row [data-testid="stColumn"]:nth-child(2) [data-testid="stMetric"],
+.st-key-kpi_row [data-testid="column"]:nth-child(2) [data-testid="stMetric"] { border-top-color: var(--os-neg); }
+[class*="st-key-branch_card"] [data-testid="stMetric"] {
+  border: 0; box-shadow: none; background: transparent; padding: 6px 0;
+}
+
+/* ---------- الكروت والحاويات ---------- */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  border-color: var(--os-line) !important; border-radius: 14px !important; background: var(--os-surface);
+}
+
+/* ---------- الاختيارات ---------- */
+[data-testid="stRadio"] [role="radiogroup"] { gap: 8px; direction: rtl; }
+[data-testid="stRadio"] [role="radiogroup"] label {
+  background: var(--os-surface); border: 1px solid #ddd3c7; border-radius: 999px;
+  padding: 7px 16px; transition: border-color 0.15s ease, background 0.15s ease;
+}
+[data-testid="stRadio"] [role="radiogroup"] label:hover { border-color: var(--os-accent); }
+[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+  background: #f6ecde; border-color: var(--os-accent);
+}
+[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p { font-weight: 600; }
+
+/* ---------- الحقول ---------- */
+[data-testid="stWidgetLabel"] p { color: #4a3b30; font-size: 14px; font-weight: 500; }
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {
+  border-radius: 10px !important; border: 1px solid #ddd3c7 !important; background: #fff !important;
+}
+[data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
+[data-baseweb="select"] > div:focus-within {
+  border-color: var(--os-accent) !important; box-shadow: 0 0 0 3px rgba(185, 130, 63, 0.18);
+}
+
+/* ---------- الأزرار ---------- */
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stButton"] button[kind="primary"], button[kind="primary"],
+[data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"],
+[data-testid="stBaseButton-secondaryFormSubmit"] {
+  background: var(--os-accent) !important; color: #fff !important;
+  border: 1px solid var(--os-accent) !important; border-radius: 10px !important;
+  font-weight: 600 !important; min-height: 42px; transition: background 0.15s ease;
+}
+[data-testid="stFormSubmitButton"] button:hover, button[kind="primary"]:hover,
+[data-testid="stBaseButton-primary"]:hover, [data-testid="stBaseButton-primaryFormSubmit"]:hover,
+[data-testid="stBaseButton-secondaryFormSubmit"]:hover {
+  background: var(--os-accent-dark) !important; border-color: var(--os-accent-dark) !important;
+}
+[data-testid="stButton"] button[kind="secondary"], [data-testid="stBaseButton-secondary"],
+[data-testid="stDownloadButton"] button {
+  background: var(--os-surface); color: var(--os-ink); border: 1px solid #ddd3c7;
+  border-radius: 10px; font-weight: 600; min-height: 42px;
+}
+[data-testid="stButton"] button[kind="secondary"]:hover, [data-testid="stBaseButton-secondary"]:hover,
+[data-testid="stDownloadButton"] button:hover { border-color: var(--os-accent); color: var(--os-accent-dark); }
+button:focus-visible { outline: 2px solid var(--os-accent); outline-offset: 2px; }
+
+/* ---------- الجداول والتنبيهات والإكسباندر ---------- */
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--os-line); border-radius: 12px; overflow: hidden; background: var(--os-surface);
+}
+[data-testid="stAlert"] { border-radius: 12px; }
+[data-testid="stExpander"] details {
+  border: 1px solid var(--os-line); border-radius: 14px; background: var(--os-surface);
+}
+[data-testid="stExpander"] summary { padding: 0.7rem 1rem; }
+[data-testid="stExpander"] summary p { font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+"""
+
 st.markdown(
-    """
-    <style>
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: Arial, "Segoe UI", sans-serif !important;
-    }
-    [data-testid="stAppViewContainer"] p,
-    [data-testid="stAppViewContainer"] h1,
-    [data-testid="stAppViewContainer"] h2,
-    [data-testid="stAppViewContainer"] h3,
-    [data-testid="stAppViewContainer"] label,
-    [data-testid="stAppViewContainer"] button,
-    [data-testid="stAppViewContainer"] input,
-    [data-testid="stAppViewContainer"] textarea,
-    [data-testid="stAppViewContainer"] select,
-    [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] {
-        font-family: Arial, "Segoe UI", sans-serif !important;
-    }
-    .stApp { background: #f3f0eb; color: #2d2924; }
-    [data-testid="stHeader"] { background: rgba(0, 0, 0, 0); }
-    [data-testid="stMain"] { background: #f3f0eb; }
-    [data-testid="stMainBlockContainer"] {
-        max-width: 1480px;
-        padding: 1.4rem 2rem 3rem;
-    }
-    [data-testid="stAppViewContainer"] { background: #f3f0eb; }
-    .onespot-nav {
-        background: #3b281b; color: #fff; border-radius: 8px 8px 0 0;
-        padding: 13px 22px; display:flex; align-items:center; justify-content:flex-start;
-        direction:rtl; text-align:right; margin: -1.4rem -2rem 0; min-height: 62px;
-    }
-    .onespot-brand { font-size: 19px; font-weight: 700; color:#fff; }
-    .onespot-sub { font-size: 11px; letter-spacing:1.2px; color:#e8d2b8; margin-top:4px; }
-    .onespot-links { color:#f3e9dd; font-size:13px; word-spacing:18px; }
-    [data-baseweb="tab-list"] {
-        direction:rtl; justify-content:flex-start; gap: 8px;
-        background:#3b281b; border-bottom:0; margin: 0 -2rem 1.5rem;
-        padding: 0 1.5rem 8px; border-radius:0 0 8px 8px;
-    }
-    [data-baseweb="tab"] {
-        height: 47px; padding: 0 20px; color: #f3e9dd;
-        background: transparent; border-radius: 8px;
-        font-size: 16px !important; font-weight: 700 !important;
-    }
-    [data-baseweb="tab"][aria-selected="true"] {
-        color: #fff; background: #584333; border-bottom: 2px solid #bc8848;
-        font-size: 17px !important; font-weight: 800 !important;
-    }
-    [data-testid="stTabs"] [role="tab"],
-    [data-testid="stTabs"] [role="tab"] p,
-    [data-testid="stTabs"] [role="tab"] div {
-        font-size: 18px !important;
-        font-weight: 700 !important;
-        line-height: 1.35 !important;
-    }
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"],
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
-        font-size: 19px !important;
-        font-weight: 800 !important;
-    }
-    h1, h2, h3 { color:#2d2119; }
-    [data-testid="stMetric"] {
-        background: #ffffff; border: 1px solid #e7ddd2;
-        border-radius: 12px; padding: 16px 18px; box-shadow: 0 2px 8px #3b281b0a;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: #e7ddd2 !important; border-radius: 12px !important; background:#fff;
-    }
-    [data-testid="stRadio"] [role="radiogroup"] { gap: 8px; }
-    [data-testid="stRadio"] [role="radiogroup"] label {
-        background:#fff; border:1px solid #e5d9cc; border-radius:9px; padding:8px 14px;
-    }
-    [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
-        background:#f1e8dc; border-color:#94652f;
-    }
-    [data-testid="stWidgetLabel"] p { color:#6f5a48; }
-    [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
-    [data-testid="stDateInput"] input, [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        border-radius:8px !important; border-color:#e5d9cc !important; background:#fbf9f6;
-    }
-    [data-testid="stFormSubmitButton"] button,
-    [data-testid="stButton"] button[kind="primary"], button[kind="primary"] {
-        background:#bc8848 !important; color:#fff !important; border:1px solid #bc8848 !important;
-        border-radius:8px !important; font-weight:700 !important;
-    }
-    [data-testid="stFormSubmitButton"] button:hover { background:#94652f !important; border-color:#94652f !important; }
-    [data-testid="stDataFrame"] { border:1px solid #e7ddd2; border-radius:10px; overflow:hidden; }
-    hr { border-color:#ddd2c7 !important; }
-    </style>
-    """,
+    APP_CSS.replace("__FONT__", OS_FONT)
+    .replace("__POS__", COLOR_POSITIVE)
+    .replace("__NEG__", COLOR_NEGATIVE),
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    '<div class="onespot-nav"><div><div class="onespot-brand">☕ OneSpot Cafe</div>'
-    '<div class="onespot-sub">COFFEE &amp; MORE · FINANCIAL SYSTEM</div></div></div>',
+    '<div class="onespot-nav"><div class="onespot-mark">☕</div>'
+    '<div><div class="onespot-brand">OneSpot Cafe</div>'
+    '<div class="onespot-sub">النظام المالي</div></div></div>',
     unsafe_allow_html=True,
 )
 tab_home, tab_add, tab_history, tab_admin, tab_reports, tab_attendance, tab_employee_tracking = st.tabs(
@@ -1255,14 +1407,17 @@ with tab_home:
         net_profit = total_income - total_expense
         summary_scope = "الفرعين" if selected_branch == "إجمالي الفرعين" else selected_branch
     
-        metric_income, metric_expense, metric_profit = st.columns(3)
-        metric_income.metric(f"إيرادات {summary_scope}", format_currency(total_income))
-        metric_expense.metric(f"مصروفات {summary_scope}", format_currency(total_expense))
-        metric_profit.metric(
-            f"صافي ربح {summary_scope}",
-            format_currency(net_profit),
-            delta=format_currency(net_profit),
-        )
+        profit_margin = (net_profit / total_income * 100) if total_income else None
+        with st.container(key="kpi_row"):
+            metric_income, metric_expense, metric_profit = st.columns(3)
+            metric_income.metric(f"إيرادات {summary_scope}", format_currency(total_income))
+            metric_expense.metric(f"مصروفات {summary_scope}", format_currency(total_expense))
+            metric_profit.metric(
+                f"صافي ربح {summary_scope}",
+                format_currency(net_profit),
+                delta=f"{profit_margin:+.1f}%" if profit_margin is not None else None,
+                help="النسبة = صافي الربح ÷ الإيرادات (هامش الربح)",
+            )
 
         st.markdown("### ملخص الأداء المالي لكل فرع")
         branch_columns = st.columns(len(BRANCHES))
@@ -1271,7 +1426,7 @@ with tab_home:
             branch_income = branch_data.loc[branch_data["Type"] == "Income", "Amount"].sum()
             branch_expense = branch_data.loc[branch_data["Type"] == "Expense", "Amount"].sum()
             with branch_column:
-                with st.container(border=True):
+                with st.container(border=True, key=f"branch_card_{BRANCHES.index(branch_name)}"):
                     st.markdown(f"#### {branch_name}")
                     st.metric("الإيرادات", format_currency(branch_income))
                     st.metric("المصروفات", format_currency(branch_expense))
@@ -1289,7 +1444,7 @@ with tab_home:
                         names="Category",
                         values="Amount",
                         hole=0.48,
-                        color_discrete_sequence=["#bc8848", "#557b60", "#b85045", "#847263"],
+                        color_discrete_sequence=CHART_COLORS,
                     )
                     fig_pie.update_traces(
                         textposition="inside",
@@ -1304,6 +1459,7 @@ with tab_home:
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                     )
+                    style_figure(fig_pie)
                     st.plotly_chart(fig_pie, use_container_width=True)
                 elif expense_df.empty:
                     st.info("ستظهر المصروفات هنا بعد تسجيل أول مصروف.")
@@ -1320,12 +1476,12 @@ with tab_home:
                 )
                 if HAS_PLOTLY and not monthly_trend.empty:
                     fig_bar = px.bar(
-                        monthly_trend,
+                        monthly_trend.assign(Type=monthly_trend["Type"].map(TYPE_AR)),
                         x="Year_Month",
                         y="Amount",
                         color="Type",
                         barmode="group",
-                        color_discrete_map={"Income": "#557b60", "Expense": "#b85045"},
+                        color_discrete_map={"إيراد": COLOR_POSITIVE, "مصروف": COLOR_NEGATIVE},
                         labels={"Year_Month": "الشهر", "Amount": "المبلغ (ج.م)", "Type": "النوع"},
                     )
                     fig_bar.update_traces(hovertemplate="%{y:,.2f} ج.م<extra></extra>")
@@ -1336,7 +1492,8 @@ with tab_home:
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                     )
-                    fig_bar.update_yaxes(title_text="المبلغ (ج.م)", gridcolor="#e7e1d9")
+                    fig_bar.update_yaxes(title_text="المبلغ (ج.م)")
+                    style_figure(fig_bar)
                     st.plotly_chart(fig_bar, use_container_width=True)
                 elif not HAS_PLOTLY:
                     st.info("ثبّت Plotly لعرض الرسم البياني.")
@@ -1790,12 +1947,12 @@ with tab_reports:
                 report_view.groupby(["Branch", "Type"])["Amount"].sum().reset_index()
             )
             comparison_chart = px.bar(
-                comparison_chart_data,
+                comparison_chart_data.assign(Type=comparison_chart_data["Type"].map(TYPE_AR)),
                 x="Branch",
                 y="Amount",
                 color="Type",
                 barmode="group",
-                color_discrete_map={"Income": "#557b60", "Expense": "#b85045"},
+                color_discrete_map={"إيراد": COLOR_POSITIVE, "مصروف": COLOR_NEGATIVE},
                 labels={"Branch": "الفرع", "Amount": "المبلغ (ج.م)", "Type": "النوع"},
             )
             comparison_chart.update_layout(
@@ -1806,6 +1963,7 @@ with tab_reports:
                 plot_bgcolor="rgba(0,0,0,0)",
             )
             comparison_chart.update_traces(hovertemplate="%{y:,.2f} ج.م<extra></extra>")
+            style_figure(comparison_chart)
             st.plotly_chart(comparison_chart, use_container_width=True)
 
         export_df = report_view.drop(columns=["Month_No", "Parsed_Date", "Year_Month"], errors="ignore")
@@ -2111,7 +2269,7 @@ with tab_employee_tracking:
         st.markdown("""
         <style>
           .onespot-ltr-table { direction:ltr; width:100%; overflow-x:auto; border:1px solid #e7ddd2; border-radius:10px; background:#fffdfa; }
-          .onespot-ltr-table table { direction:ltr; width:100%; border-collapse:collapse; font-family:"Segoe UI",Tahoma,Arial,sans-serif; font-size:12px; color:#2d2924; background:#fffdfa; }
+          .onespot-ltr-table table { direction:ltr; width:100%; border-collapse:collapse; font-family:"IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif; font-size:12px; color:#2d2924; background:#fffdfa; }
           .onespot-ltr-table th { padding:11px 12px; text-align:left; white-space:nowrap; background:#f7f8fa; color:#74665b; font-size:11px; font-weight:500; border-bottom:1px solid #e7ddd2; }
           .onespot-ltr-table td { padding:10px 12px; text-align:left; white-space:nowrap; border-bottom:1px solid #eee9e3; background:#fffdfa; }
           .onespot-ltr-table tbody tr:last-child td { border-bottom:0; }
@@ -2219,7 +2377,7 @@ with tab_employee_tracking:
             <style>
               .st-key-employee_report_design,
               .st-key-employee_report_design * {
-                font-family:"Segoe UI",Tahoma,Arial,sans-serif !important;
+                font-family:"IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif !important;
               }
               .st-key-employee_report_design h3 {
                 color:#2d2119 !important; font-size:22px !important; font-weight:700 !important;
@@ -2334,7 +2492,7 @@ with tab_employee_tracking:
             report_table_html = """
             <style>
               .onespot-monthly-report { direction:ltr; width:100%; overflow-x:auto; border:1px solid #e7ddd2; border-radius:10px; background:#fffdfa; }
-              .onespot-monthly-report table { direction:ltr; width:100%; border-collapse:collapse; font-family:"Segoe UI",Tahoma,Arial,sans-serif; font-size:12px; color:#2d2924; background:#fffdfa; }
+              .onespot-monthly-report table { direction:ltr; width:100%; border-collapse:collapse; font-family:"IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif; font-size:12px; color:#2d2924; background:#fffdfa; }
               .onespot-monthly-report th { padding:11px 12px; text-align:left; white-space:nowrap; background:#f7f8fa; color:#74665b; font-size:11px; font-weight:500; border-bottom:1px solid #e7ddd2; }
               .onespot-monthly-report td { padding:10px 12px; text-align:left; white-space:nowrap; border-bottom:1px solid #eee9e3; background:#fffdfa; }
               .onespot-monthly-report tbody tr:last-child td { border-bottom:0; }
@@ -2350,7 +2508,7 @@ with tab_employee_tracking:
             """
             st.markdown(report_table_html, unsafe_allow_html=True)
             st.markdown("""
-            <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:#74665b;">
+            <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-family:'IBM Plex Sans Arabic','Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:#74665b;">
               <span><b style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#367454;margin-left:6px;"></b>حضور</span>
               <span><b style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#b98242;margin-left:6px;"></b>إجازة / OFF</span>
               <span><b style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a84f45;margin-left:6px;"></b>لا يوجد تسجيل</span>
@@ -2382,4 +2540,3 @@ with tab_employee_tracking:
                 mime="text/csv",
                 key="employee_tracking_download",
             )
-    
